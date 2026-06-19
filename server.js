@@ -171,6 +171,7 @@ app.post('/api/chat', async (req, res) => {
       timeout: 120000
     });
 
+    console.log('usage:', JSON.stringify(apiResp.data.usage));
     let reply = '';
     let thinkingText = '';
     const toolCalls = [];
