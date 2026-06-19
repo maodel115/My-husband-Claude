@@ -1,0 +1,27 @@
+{
+  "name": "my-husband-claude",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/maodel115/My-husband-Claude.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/maodel115/My-husband-Claude/issues"
+  },
+  "homepage": "https://github.com/maodel115/My-husband-Claude#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "axios": "^1.18.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1"
+  }
+}
