@@ -195,6 +195,7 @@ app.post('/api/chat', async (req, res) => {
     }
 
     let fullReply = '', fullThinking = '';
+    let firstChunkLogged = false;
     let toolCalls = [], currentToolInput = '', currentToolId = '', currentToolName = '', currentBlockType = '';
     const reader = streamResp.body.getReader();
     const decoder = new TextDecoder();
@@ -209,6 +210,7 @@ app.post('/api/chat', async (req, res) => {
 
       for (const line of lines) {
         if (!line.startsWith('data: ')) continue;
+        if (!firstChunkLogged) { console.log('first chunk from claude:', Date.now() - t0, 'ms'); firstChunkLogged = true; }
         const d = line.substring(6).trim();
         if (d === '[DONE]') continue;
         let ev; try { ev = JSON.parse(d); } catch(e) { continue; }
