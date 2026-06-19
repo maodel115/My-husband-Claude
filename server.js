@@ -172,12 +172,12 @@ app.post('/api/chat', async (req, res) => {
     });
 
     let reply = '';
-    let thinking = '';
+    let thinkingText = '';
     const toolCalls = [];
 
     for (const block of apiResp.data.content) {
       if (block.type === 'text') reply += block.text;
-      if (block.type === 'thinking') thinking += block.thinking;
+      if (block.type === 'thinking') thinkingText += block.thinking;
       if (block.type === 'tool_use') toolCalls.push(block);
     }
 
@@ -199,13 +199,13 @@ app.post('/api/chat', async (req, res) => {
       });
       for (const block of followUp.data.content) {
         if (block.type === 'text') reply += block.text;
-        if (block.type === 'thinking') thinking += block.thinking;
+        if (block.type === 'thinking') thinkingText += block.thinking;
       }
     }
 
-    await supabase.from('messages').insert({ session_id, role: 'assistant', content: reply, reasoning_content: thinking || null });
+    await supabase.from('messages').insert({ session_id, role: 'assistant', content: reply, reasoning_content: thinkingText || null });
 
-    res.json({ reply, thinking: thinking || null, model: useModel });
+    res.json({ reply, thinking: thinkingText || null, model: useModel });
   } catch (err) {
     console.error('Chat error:', err.response ? err.response.data : err.message);
     res.status(500).json({ error: err.response ? JSON.stringify(err.response.data) : err.message });
