@@ -89,6 +89,17 @@ const HOLD_TOOL = {
   }
 };
 
+let memoryCache = '';
+let memoryFetching = false;
+
+function fetchMemoryAsync(query) {
+  memoryFetching = true;
+  callOmbreTool('breath', { query, max_results: 5 }).then(result => {
+    if (result) memoryCache = result;
+    memoryFetching = false;
+  }).catch(() => { memoryFetching = false; });
+}
+
 app.get('/health', (req, res) => res.json({ status: 'ok', ombre: !!ombreSessionId }));
 
 app.get('/api/sessions', async (req, res) => {
@@ -158,8 +169,9 @@ app.post('/api/chat', async (req, res) => {
     const recent = (history || []).slice(-(maxRounds * 2));
 
     console.log('db done:', Date.now() - t0, 'ms');
-    const memories = await callOmbreTool('breath', { query: message, max_results: 5 });
-    console.log('breath done:', Date.now() - t0, 'ms');
+    const memories = memoryCache;
+    fetchMemoryAsync(message);
+    console.log('breath skipped, using cache:', Date.now() - t0, 'ms');
     let system = systemPrompt || '';
     if (memories) { system += '\n\n[相关记忆]\n' + memories; }
 
