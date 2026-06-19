@@ -136,7 +136,11 @@ app.put('/api/settings', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
   const { message, session_id, model, thinking } = req.body;
-  if (!message || !session_id) return res.status(400).json({ error: 'missing message or session_id' });
+  if (!message || !session_id) return res.status(400).json({ error: 'missing' });
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
 
   try {
     await supabase.from('messages').insert({ session_id, role: 'user', content: message });
@@ -151,65 +155,96 @@ app.post('/api/chat', async (req, res) => {
     const recent = (history || []).slice(-(maxRounds * 2));
 
     const memories = await callOmbreTool('breath', { query: message, max_results: 5 });
+    let system = systemPrompt || '';
+    if (memories) { system += '\n\n[相关记忆]\n' + memories; }
 
-    let systemText = systemPrompt || '';
-    if (memories) { systemText += '\n\n[相关记忆]\n' + memories; }
-    const system = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
-
-    const messages = recent.map(m => ({ role: m.role, content: m.content }));
-
+    const msgs = recent.map(m => ({ role: m.role, content: m.content }));
     const useModel = model || 'claude-opus-4-6';
-    const apiResp = await axios.post(CLAUDE_API_URL + '/messages', {
-      model: useModel,
-      max_tokens: thinking ? 16000 : maxTokens,
-      ...(thinking ? { thinking: { type: "enabled", budget_tokens: 10000 } } : {}),
-      system: system,
-      messages: messages,
-      tools: [HOLD_TOOL]
-    }, {
+
+    const apiBody = { model: useModel, max_tokens: thinking ? 16000 : maxTokens, stream: true, system, messages: msgs, tools: [HOLD_TOOL] };
+    if (thinking) { apiBody.thinking = { type: 'enabled', budget_tokens: 5000 }; }
+
+    const streamResp = await fetch(CLAUDE_API_URL + '/messages', {
+      method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' },
-      timeout: 120000
+      body: JSON.stringify(apiBody)
     });
 
-    console.log('usage:', JSON.stringify(apiResp.data.usage));
-    let reply = '';
-    let thinkingText = '';
-    const toolCalls = [];
-
-    for (const block of apiResp.data.content) {
-      if (block.type === 'text') reply += block.text;
-      if (block.type === 'thinking') thinkingText += block.thinking;
-      if (block.type === 'tool_use') toolCalls.push(block);
+    if (!streamResp.ok) {
+      const errText = await streamResp.text();
+      res.write('event: error\ndata: ' + JSON.stringify({ error: errText }) + '\n\n');
+      res.end(); return;
     }
 
-    for (const tc of toolCalls) {
-      if (tc.name === 'hold') {
-        await callOmbreTool('hold', tc.input);
+    let fullReply = '', fullThinking = '';
+    let toolCalls = [], currentToolInput = '', currentToolId = '', currentToolName = '', currentBlockType = '';
+    const reader = streamResp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const d = line.substring(6).trim();
+        if (d === '[DONE]') continue;
+        let ev; try { ev = JSON.parse(d); } catch(e) { continue; }
+
+        if (ev.type === 'content_block_start') {
+          if (ev.content_block.type === 'thinking') currentBlockType = 'thinking';
+          else if (ev.content_block.type === 'text') currentBlockType = 'text';
+          else if (ev.content_block.type === 'tool_use') {
+            currentBlockType = 'tool_use'; currentToolId = ev.content_block.id;
+            currentToolName = ev.content_block.name; currentToolInput = '';
+          }
+        } else if (ev.type === 'content_block_delta') {
+          if (ev.delta.type === 'thinking_delta') { fullThinking += ev.delta.thinking; res.write('event: thinking\ndata: ' + JSON.stringify({text:ev.delta.thinking}) + '\n\n'); }
+          else if (ev.delta.type === 'text_delta') { fullReply += ev.delta.text; res.write('event: text\ndata: ' + JSON.stringify({text:ev.delta.text}) + '\n\n'); }
+          else if (ev.delta.type === 'input_json_delta') { currentToolInput += ev.delta.partial_json; }
+        } else if (ev.type === 'content_block_stop') {
+          if (currentBlockType === 'tool_use') {
+            let pi = {}; try { pi = JSON.parse(currentToolInput); } catch(e) {}
+            toolCalls.push({ id: currentToolId, name: currentToolName, input: pi });
+          }
+          currentBlockType = '';
+        }
       }
     }
 
-    if (toolCalls.length > 0 && !reply) {
+    for (const tc of toolCalls) { if (tc.name === 'hold') await callOmbreTool('hold', tc.input); }
+
+    if (toolCalls.length > 0 && !fullReply) {
       const toolResults = toolCalls.map(tc => ({ type: 'tool_result', tool_use_id: tc.id, content: 'done' }));
-      const followUp = await axios.post(CLAUDE_API_URL + '/messages', {
-        model: useModel, max_tokens: thinking ? 16000 : maxTokens, ...(thinking ? { thinking: { type: "enabled", budget_tokens: 10000 } } : {}), system: system,
-        messages: [...messages, { role: 'assistant', content: apiResp.data.content }, { role: 'user', content: toolResults }],
-        tools: [HOLD_TOOL]
-      }, {
-        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' },
-        timeout: 120000
-      });
-      for (const block of followUp.data.content) {
-        if (block.type === 'text') reply += block.text;
-        if (block.type === 'thinking') thinkingText += block.thinking;
+      const ac = [];
+      if (fullThinking) ac.push({ type: 'thinking', thinking: fullThinking });
+      for (const tc of toolCalls) ac.push({ type: 'tool_use', id: tc.id, name: tc.name, input: tc.input });
+      const fb = { model: useModel, max_tokens: thinking ? 16000 : maxTokens, stream: true, system, messages: [...msgs, {role:'assistant',content:ac}, {role:'user',content:toolResults}], tools: [HOLD_TOOL] };
+      if (thinking) fb.thinking = { type: 'enabled', budget_tokens: 5000 };
+      const fr = await fetch(CLAUDE_API_URL + '/messages', { method:'POST', headers:{'Content-Type':'application/json','x-api-key':CLAUDE_API_KEY,'anthropic-version':'2023-06-01','anthropic-beta':'prompt-caching-2024-07-31'}, body:JSON.stringify(fb) });
+      if (fr.ok) {
+        const r2 = fr.body.getReader(); let b2 = '';
+        while (true) {
+          const {done,value} = await r2.read(); if (done) break;
+          b2 += decoder.decode(value,{stream:true}); const ls = b2.split('\n'); b2 = ls.pop();
+          for (const l of ls) { if (!l.startsWith('data: ')) continue; const dd=l.substring(6).trim(); if(dd==='[DONE]')continue; let e2; try{e2=JSON.parse(dd);}catch(e){continue;}
+            if(e2.type==='content_block_delta'){if(e2.delta.type==='thinking_delta'){fullThinking+=e2.delta.thinking;res.write('event: thinking\ndata: '+JSON.stringify({text:e2.delta.thinking})+'\n\n');}else if(e2.delta.type==='text_delta'){fullReply+=e2.delta.text;res.write('event: text\ndata: '+JSON.stringify({text:e2.delta.text})+'\n\n');}}
+          }
+        }
       }
     }
 
-    await supabase.from('messages').insert({ session_id, role: 'assistant', content: reply, reasoning_content: thinkingText || null });
-
-    res.json({ reply, thinking: thinkingText || null, model: useModel });
+    await supabase.from('messages').insert({ session_id, role: 'assistant', content: fullReply, reasoning_content: fullThinking || null });
+    res.write('event: done\ndata: {}\n\n');
+    res.end();
   } catch (err) {
-    console.error('Chat error:', err.response ? err.response.data : err.message);
-    res.status(500).json({ error: err.response ? JSON.stringify(err.response.data) : err.message });
+    console.error('Chat error:', err.message);
+    res.write('event: error\ndata: ' + JSON.stringify({error:err.message}) + '\n\n');
+    res.end();
   }
 });
 
