@@ -145,6 +145,7 @@ app.post('/api/chat', async (req, res) => {
   res.flushHeaders();
 
   try {
+    const t0 = Date.now();
     await supabase.from('messages').insert({ session_id, role: 'user', content: message });
     await supabase.from('sessions').update({ updated_at: new Date().toISOString() }).eq('id', session_id);
 
@@ -156,7 +157,9 @@ app.post('/api/chat', async (req, res) => {
     const { data: history } = await supabase.from('messages').select('*').eq('session_id', session_id).eq('visible', true).order('created_at', { ascending: true });
     const recent = (history || []).slice(-(maxRounds * 2));
 
+    console.log('db done:', Date.now() - t0, 'ms');
     const memories = await callOmbreTool('breath', { query: message, max_results: 5 });
+    console.log('breath done:', Date.now() - t0, 'ms');
     let system = systemPrompt || '';
     if (memories) { system += '\n\n[相关记忆]\n' + memories; }
 
@@ -166,6 +169,7 @@ app.post('/api/chat', async (req, res) => {
     const apiBody = { model: useModel, max_tokens: thinking ? 16000 : maxTokens, stream: true, system, messages: msgs, tools: [HOLD_TOOL] };
     if (thinking) { apiBody.thinking = { type: 'enabled', budget_tokens: 5000 }; }
 
+    console.log('calling claude:', Date.now() - t0, 'ms');
     const streamResp = await fetch(CLAUDE_API_URL + '/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' },
