@@ -178,7 +178,7 @@ app.post('/api/chat', async (req, res) => {
     const msgs = recent.map(m => ({ role: m.role, content: m.content }));
     const useModel = model || 'claude-opus-4-6';
 
-    const apiBody = { model: useModel, max_tokens: thinking ? 16000 : maxTokens, stream: true, system, messages: msgs, tools: [HOLD_TOOL] };
+    const apiBody = { model: useModel, max_tokens: thinking ? 16000 : maxTokens, stream: true, system, messages: msgs };
     if (thinking) { apiBody.thinking = { type: 'enabled', budget_tokens: 5000 }; }
 
     console.log('calling claude:', Date.now() - t0, 'ms');
