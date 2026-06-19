@@ -152,8 +152,9 @@ app.post('/api/chat', async (req, res) => {
 
     const memories = await callOmbreTool('breath', { query: message, max_results: 5 });
 
-    let system = systemPrompt || '';
-    if (memories) { system += '\n\n[相关记忆]\n' + memories; }
+    let systemText = systemPrompt || '';
+    if (memories) { systemText += '\n\n[相关记忆]\n' + memories; }
+    const system = [{ type: 'text', text: systemText, cache_control: { type: 'ephemeral' } }];
 
     const messages = recent.map(m => ({ role: m.role, content: m.content }));
 
