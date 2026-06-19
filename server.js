@@ -167,7 +167,7 @@ app.post('/api/chat', async (req, res) => {
       messages: messages,
       tools: [HOLD_TOOL]
     }, {
-      headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+      headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' },
       timeout: 120000
     });
 
@@ -194,7 +194,7 @@ app.post('/api/chat', async (req, res) => {
         messages: [...messages, { role: 'assistant', content: apiResp.data.content }, { role: 'user', content: toolResults }],
         tools: [HOLD_TOOL]
       }, {
-        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+        headers: { 'Content-Type': 'application/json', 'x-api-key': CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' },
         timeout: 120000
       });
       for (const block of followUp.data.content) {
