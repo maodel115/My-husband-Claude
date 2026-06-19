@@ -160,7 +160,8 @@ app.post('/api/chat', async (req, res) => {
     const useModel = model || 'claude-opus-4-6';
     const apiResp = await axios.post(CLAUDE_API_URL + '/messages', {
       model: useModel,
-      max_tokens: maxTokens,
+      max_tokens: 16000,
+      thinking: { type: "enabled", budget_tokens: 10000 },
       system: system,
       messages: messages,
       tools: [HOLD_TOOL]
@@ -188,7 +189,7 @@ app.post('/api/chat', async (req, res) => {
     if (toolCalls.length > 0 && !reply) {
       const toolResults = toolCalls.map(tc => ({ type: 'tool_result', tool_use_id: tc.id, content: 'done' }));
       const followUp = await axios.post(CLAUDE_API_URL + '/messages', {
-        model: useModel, max_tokens: maxTokens, system: system,
+        model: useModel, max_tokens: 16000, thinking: { type: "enabled", budget_tokens: 10000 }, system: system,
         messages: [...messages, { role: 'assistant', content: apiResp.data.content }, { role: 'user', content: toolResults }],
         tools: [HOLD_TOOL]
       }, {
