@@ -304,4 +304,20 @@ app.post('/api/claude-proxy', async (req, res) => {
   }
 });
 
+app.post('/api/raw-proxy', (req, res) => {
+  const https = require('https');
+  const body = JSON.stringify(req.body);
+  const opts = {
+    hostname: 'api.lmuai.com', port: 443, path: '/v1/messages', method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' }
+  };
+  const proxyReq = https.request(opts, (proxyRes) => {
+    res.writeHead(proxyRes.statusCode, { ...proxyRes.headers, 'Access-Control-Allow-Origin': '*' });
+    proxyRes.pipe(res);
+  });
+  proxyReq.on('error', (e) => { res.writeHead(502); res.end('error'); });
+  proxyReq.write(body);
+  proxyReq.end();
+});
+
 app.listen(port, () => console.log('Server running on port ' + port));
