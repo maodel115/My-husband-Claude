@@ -262,4 +262,46 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
+app.post('/api/claude-proxy', async (req, res) => {
+  const CLAUDE_API_URL = process.env.CLAUDE_API_URL || 'https://api.lmuai.com/v1';
+  const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+
+  try {
+    const streamResp = await fetch(CLAUDE_API_URL + '/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': CLAUDE_API_KEY,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'prompt-caching-2024-07-31'
+      },
+      body: JSON.stringify(req.body)
+    });
+
+    if (!streamResp.ok) {
+      const err = await streamResp.text();
+      res.write('event: error\ndata: ' + JSON.stringify({error: err}) + '\n\n');
+      res.end();
+      return;
+    }
+
+    const reader = streamResp.body.getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (err) {
+    res.write('event: error\ndata: ' + JSON.stringify({error: err.message}) + '\n\n');
+    res.end();
+  }
+});
+
 app.listen(port, () => console.log('Server running on port ' + port));
