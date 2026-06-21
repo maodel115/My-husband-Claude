@@ -168,17 +168,23 @@ app.put('/api/settings', async (req, res) => {
 app.post('/api/raw-proxy', (req, res) => {
   const https = require('https');
   const body = JSON.stringify(req.body);
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
   const opts = {
     hostname: 'api.lmuai.com', port: 443, path: '/v1/messages', method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CLAUDE_API_KEY, 'anthropic-version': '2023-06-01', 'anthropic-beta': 'prompt-caching-2024-07-31' }
   };
   const proxyReq = https.request(opts, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, { ...proxyRes.headers, 'Access-Control-Allow-Origin': '*' });
-    proxyRes.pipe(res);
+    proxyRes.on('data', (chunk) => { res.write(chunk); });
+    proxyRes.on('end', () => { res.end(); });
   });
-  proxyReq.on('error', (e) => { res.writeHead(502); res.end('error'); });
+  proxyReq.on('error', () => { res.end(); });
   proxyReq.write(body);
   proxyReq.end();
+  req.on('close', () => { proxyReq.destroy(); });
 });
 
 app.listen(port, () => console.log('Server running on port ' + port));
